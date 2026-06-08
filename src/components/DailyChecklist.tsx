@@ -115,7 +115,6 @@ export default function DailyChecklist({
   // Notification states
   const [notificationSupported, setNotificationSupported] = useState(false);
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>("default");
-  const [simulationActive, setSimulationActive] = useState(false);
 
   useEffect(() => {
     if (typeof window !== "undefined" && "Notification" in window) {
@@ -153,40 +152,6 @@ export default function DailyChecklist({
       setNotificationPermission(permission);
     } catch (err) {
       console.warn("Failed requesting notification permissions:", err);
-    }
-  };
-
-  const triggerBedtimePushNow = () => {
-    // Collect incomplete tasks for selectedDay
-    const dayCompletedIds = checkedTasksByDay[selectedDay] || [];
-    const incompleteCount = totalTasksToday - dayCompletedIds.length;
-
-    setSimulationActive(true);
-    setTimeout(() => setSimulationActive(false), 5000);
-
-    if (incompleteCount > 0) {
-      const message = `🎹 Reminder: You still have ${incompleteCount} practice exercises to complete before bedtime! Don't lose your ${streakCount}-day streak! 🌟`;
-      if (notificationSupported && Notification.permission === "granted") {
-        new Notification("Bedtime Piano Practice Reminder", {
-          body: message,
-          icon: "/favicon.ico",
-          tag: "bedtime-reminder",
-          requireInteraction: true
-        });
-      } else {
-        // App inner notification alert
-        alert(message);
-      }
-    } else {
-      const message = `🎉 Awesome job! You've completed all your custom practice goals for today! Rest up so you print beautiful melodies tomorrow! 💤`;
-      if (notificationSupported && Notification.permission === "granted") {
-        new Notification("Piano Practice Complete!", {
-          body: message,
-          icon: "/favicon.ico"
-        });
-      } else {
-        alert(message);
-      }
     }
   };
 
@@ -682,16 +647,6 @@ export default function DailyChecklist({
             </button>
           )}
         </div>
-
-        {simulationActive && bedtimeReminderEnabled && (
-          <motion.div 
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="text-[11px] bg-indigo-900/50 border border-indigo-400/20 rounded-xl p-2.5 text-center font-medium"
-          >
-            🔔 Sending desktop push notification. If blocked/denied, see simulated browser alert popup!
-          </motion.div>
-        )}
       </div>
 
       {/* Motivational / Incentive Artwork Box */}

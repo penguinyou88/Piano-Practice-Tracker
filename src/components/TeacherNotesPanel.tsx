@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { 
   FileText, 
   Sparkles, 
@@ -8,7 +8,12 @@ import {
   ArrowRight,
   Smile,
   AlertTriangle,
-  Trash2
+  Trash2,
+  Link,
+  Lock,
+  Settings,
+  HelpCircle,
+  Check
 } from "lucide-react";
 import { WeeklyNotes } from "../types";
 
@@ -60,7 +65,9 @@ Dear penguin! An exceptional lesson today.
 3. Theory:
 - Read page 14: Draw bass clef F keys.`
   }
-];export default function TeacherNotesPanel({
+];
+
+export default function TeacherNotesPanel({
   onNotesGenerated,
   currentNotes,
   onAddManualTask,
@@ -71,11 +78,131 @@ Dear penguin! An exceptional lesson today.
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
+  // Google Docs Integration States
+  const [googleDocUrl, setGoogleDocUrl] = useState(() => {
+    return localStorage.getItem("piano_practice_gdoc_url") || "https://docs.google.com/document/d/1Ld_UzkB6rtZ9CJF8XgT5bgTW8ztjR-An_Ugh7n88_mw/edit?tab=t.0";
+  });
+  const [googleClientId, setGoogleClientId] = useState(() => {
+    return localStorage.getItem("piano_practice_gdoc_client_id") || "";
+  });
+  const [directToken, setDirectToken] = useState(() => {
+    return localStorage.getItem("piano_practice_gdoc_direct_token") || "";
+  });
+  
+  const [showConfig, setShowConfig] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "success" | "error">("idle");
+  const [syncError, setSyncError] = useState<string | null>(null);
+
   // Manual Task input state
   const [manualCategory, setManualCategory] = useState<"pieces" | "technique" | "theory">("pieces");
   const [manualTitle, setManualTitle] = useState("");
   const [manualGoal, setManualGoal] = useState("");
   const [manualSuccess, setManualSuccess] = useState(false);
+
+  // Persist selections
+  useEffect(() => {
+    localStorage.setItem("piano_practice_gdoc_url", googleDocUrl);
+  }, [googleDocUrl]);
+
+  useEffect(() => {
+    localStorage.setItem("piano_practice_gdoc_client_id", googleClientId);
+  }, [googleClientId]);
+
+  useEffect(() => {
+    localStorage.setItem("piano_practice_gdoc_direct_token", directToken);
+  }, [directToken]);
+
+  // Handle standard redirect message from popup-based implicit auth callback
+  useEffect(() => {
+    const handleAuthMessage = (event: MessageEvent) => {
+      const origin = event.origin;
+      if (!origin.endsWith('.run.app') && !origin.includes('localhost')) {
+        return;
+      }
+      if (event.data?.type === 'GOOGLE_DOCS_AUTH_SUCCESS' && event.data?.token) {
+        const token = event.data.token;
+        setSyncStatus("syncing");
+        setSyncError(null);
+        triggerSyncWithToken(token);
+      }
+    };
+    window.addEventListener('message', handleAuthMessage);
+    return () => window.removeEventListener('message', handleAuthMessage);
+  }, [googleDocUrl]);
+
+  const triggerSyncWithToken = async (token: string) => {
+    const docIdRegex = /\/document\/d\/([a-zA-Z0-9-_]+)/;
+    const match = googleDocUrl.match(docIdRegex);
+    const documentId = match ? match[1] : null;
+
+    if (!documentId) {
+      setSyncError("Could not find a valid Google Document ID in your URL. Ensure it looks like: /document/d/[DOC_ID]/edit");
+      setSyncStatus("error");
+      return;
+    }
+
+    setSyncStatus("syncing");
+    setSyncError(null);
+
+    try {
+      const res = await fetch("/api/sync-doc", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ documentId, accessToken: token })
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || `HTTP Error ${res.status}`);
+      }
+
+      const parsedNotes: WeeklyNotes = await res.json();
+      onNotesGenerated(parsedNotes);
+      setSyncStatus("success");
+      setSyncError(null);
+      
+      // Auto dismiss success screen after 4s
+      setTimeout(() => setSyncStatus("idle"), 4000);
+    } catch (err: any) {
+      console.error(err);
+      setSyncError(err?.message || "Sync connection with Google Docs failed.");
+      setSyncStatus("error");
+    }
+  };
+
+  const handleStartSync = () => {
+    setSyncStatus("syncing");
+    setSyncError(null);
+
+    // 1. Direct Access Token fallback (No Google settings needed!)
+    if (directToken.trim()) {
+      triggerSyncWithToken(directToken.trim());
+      return;
+    }
+
+    // 2. Official Google Login popup (requires Client ID)
+    if (!googleClientId.trim()) {
+      setSyncError("To synchronize, please supply a Google Client ID in the setup configuration panel below, or use a Direct Access Token.");
+      setSyncStatus("error");
+      return;
+    }
+
+    const redirectUri = `${window.location.origin}/google-callback`;
+    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${googleClientId.trim()}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=https://www.googleapis.com/auth/documents.readonly&prompt=consent`;
+
+    const width = 540;
+    const height = 620;
+    const left = window.screenX + (window.outerWidth - width) / 2;
+    const top = window.screenY + (window.outerHeight - height) / 2;
+
+    const popup = window.open(authUrl, "google_docs_auth_popup", `width=${width},height=${height},left=${left},top=${top}`);
+    if (!popup) {
+      setSyncError("Authentication popup blocked! Please allow popups on this tab and try again.");
+      setSyncStatus("error");
+    }
+  };
 
   const handleParseWithGemini = async (textToParse: string) => {
     const activeText = textToParse || editorText;
@@ -126,15 +253,136 @@ Dear penguin! An exceptional lesson today.
   return (
     <div id="notes-config-deck" className="space-y-6">
       
-      {/* Overview Block */}
-      <div className="bg-white rounded-3xl p-6 shadow-sm border-b-4 border-slate-200 space-y-3">
-        <div className="flex items-center gap-2">
-          <FileText className="w-5 h-5 text-primary" style={{ fill: "rgba(79, 70, 229, 0.1)" }} />
-          <h2 className="font-headline-md text-headline-md text-on-surface font-extrabold text-slate-950">Teacher's Google Doc Notes</h2>
+      {/* Google Docs Automatic Notes Sync Card */}
+      <div className="bg-white rounded-3xl p-6 shadow-sm border-b-4 border-slate-200 space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-10 h-10 rounded-full bg-indigo-50 flex items-center justify-center text-primary border border-indigo-200">
+              <Link className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="font-headline-md text-headline-md font-extrabold text-slate-900 leading-tight">Google Docs Lesson Sync</h2>
+              <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">Automated Daily Sync</span>
+            </div>
+          </div>
+          
+          <button 
+            type="button"
+            onClick={() => setShowConfig(!showConfig)}
+            className="cursor-pointer p-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-all flex items-center gap-1.5 text-xs font-bold"
+            title="Setup Google OAuth Credentials"
+          >
+            <Settings className={`w-4 h-4 ${showConfig ? 'rotate-90' : ''} duration-300`} />
+            <span className="hidden sm:inline">Settings</span>
+          </button>
         </div>
-        <p className="text-sm text-on-surface-variant font-medium leading-relaxed">
-          Every week, the teacher drops new notes into your Google Doc. Paste them in here, and we'll use <strong className="text-primary">Gemini AI</strong> to generate a customized, fun checklist for your child! If you don't overwrite it, we keep tracking the same activities as last week.
+
+        <p className="text-sm font-medium text-slate-600 leading-relaxed">
+          Does Kai's teacher write lesson guidelines in a shared Google Doc? Paste the link below, click <strong className="text-primary font-bold">Sync Lesson Plan</strong>, and we'll automatically fetch the <strong>latest underlined lesson item</strong> and organize active songs/exercises for Kai!
         </p>
+
+        <div className="space-y-3">
+          <div>
+            <label htmlFor="gdoc-url-field" className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Teacher's Google Doc Link</label>
+            <input
+              id="gdoc-url-field"
+              type="text"
+              placeholder="https://docs.google.com/document/d/.../edit"
+              value={googleDocUrl}
+              onChange={(e) => setGoogleDocUrl(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-bold outline-none focus:border-primary text-slate-800 leading-relaxed font-sans"
+            />
+          </div>
+
+          {/* Sync control button */}
+          <button
+            onClick={handleStartSync}
+            disabled={syncStatus === "syncing" || !googleDocUrl.trim()}
+            className="relative cursor-pointer bg-primary hover:bg-indigo-650 disabled:bg-slate-150 disabled:text-slate-400 text-white font-extrabold text-sm px-6 py-3 rounded-xl w-full text-center transition-all shadow-md flex items-center justify-center gap-2"
+          >
+            {syncStatus === "syncing" ? (
+              <>
+                <RefreshCw className="w-5 h-5 animate-spin" />
+                <span>Reading from Google Docs...</span>
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-5 h-5 text-yellow-300 fill-current animate-pulse" />
+                <span>Sync Lesson Plan Now</span>
+              </>
+            )}
+          </button>
+
+          {/* Collapsible Authentication Settings Panel */}
+          {showConfig && (
+            <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3.5 mt-3 text-xs">
+              <h4 className="font-extrabold text-slate-800 flex items-center gap-1.5">
+                <Lock className="w-4 h-4 text-slate-500" />
+                <span>Google Integration Setup</span>
+              </h4>
+              
+              <div className="space-y-3 font-medium text-slate-600 leading-relaxed">
+                <div className="bg-white p-3 rounded-xl border border-slate-200/60 shadow-inner">
+                  <span className="font-bold text-slate-800 block mb-1 flex items-center gap-1 text-xs">
+                    <HelpCircle className="w-3.5 h-3.5 text-indigo-500" />
+                    Option 1: Quick Sync Fallback (Recommended & Easy)
+                  </span>
+                  <p className="text-[11px] text-slate-500 mb-2">
+                    Don't want to configure client IDs? Open the <a href="https://developers.google.com/oauthplayground" target="_blank" rel="noreferrer" className="text-primary underline font-bold">Google OAuth Playground</a>, authorize <code>https://www.googleapis.com/auth/documents.readonly</code>, click "Exchange code for tokens", copy the <strong>Access Token</strong>, and paste it here!
+                  </p>
+                  <div>
+                    <input
+                      type="password"
+                      placeholder="ya29.a0Axoo..."
+                      value={directToken}
+                      onChange={(e) => setDirectToken(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs font-mono font-bold outline-none focus:border-primary text-slate-700"
+                    />
+                  </div>
+                </div>
+
+                <div className="border-t border-slate-200/60 my-2 pt-2">
+                  <span className="font-bold text-slate-800 block mb-1">Option 2: Official Google Login popup</span>
+                  <p className="text-[11px] text-slate-500 mb-2">
+                    Create a Client ID in the <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer" className="text-primary underline font-bold">Google Cloud Console</a>. Ensure you grant Google Docs Read scope, and register the <strong>Redirect URL</strong>:
+                  </p>
+                  <div className="bg-slate-100 p-2 rounded-lg font-mono text-[10px] text-indigo-600 select-all font-bold border border-slate-200/50 mb-3 flex items-center justify-between">
+                    <span>{window.location.origin}/google-callback</span>
+                    <span className="text-[9px] bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded uppercase tracking-wider font-extrabold select-none">Redirect URI</span>
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">OAuth Client ID</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 1234567-abcdefg.apps.googleusercontent.com"
+                      value={googleClientId}
+                      onChange={(e) => setGoogleClientId(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-lg p-2 text-xs font-mono font-bold outline-none focus:border-primary text-slate-700"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Sync outcomes */}
+          {syncStatus === "success" && (
+            <div className="p-3 bg-emerald-50 text-emerald-800 border border-emerald-100 rounded-xl flex items-center gap-2.5 shadow-sm text-xs font-bold">
+              <Check className="w-5 h-5 text-emerald-600 shrink-0" />
+              <span>Beautiful! Loaded and synchronized notes from your Google Doc. Kai's active daily practice items have been updated! 🎶</span>
+            </div>
+          )}
+
+          {syncStatus === "error" && syncError && (
+            <div className="p-3 bg-red-50 text-red-700 border border-red-100 rounded-xl flex items-start gap-2.5 text-xs font-semibold">
+              <AlertTriangle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <span className="font-extrabold block">Synchronization Failed</span>
+                <p className="leading-normal">{syncError}</p>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Manual Task Creator Section */}
@@ -359,7 +607,7 @@ Dear penguin! An exceptional lesson today.
               </span>
               <ul className="space-y-1.5 text-[11px] text-on-surface-variant font-medium">
                 {currentNotes.technique?.map((t) => (
-                  <li key={t.id} className="flex items-center justify-between gap-1.5 p-1.5 bg-white/80 rounded-lg shadow-sm border border-slate-155">
+                  <li key={t.id} className="flex items-center justify-between gap-1.5 p-1.5 bg-white/80 rounded-lg shadow-sm border border-slate-200">
                     <span className="truncate flex-1 font-bold">{t.title}</span>
                     <button
                       onClick={() => onRemoveManualTask("technique", t.id)}
@@ -385,7 +633,7 @@ Dear penguin! An exceptional lesson today.
               </span>
               <ul className="space-y-1.5 text-[11px] text-on-surface-variant font-medium">
                 {currentNotes.theory?.map((th) => (
-                  <li key={th.id} className="flex items-center justify-between gap-1.5 p-1.5 bg-white/80 rounded-lg shadow-sm border border-slate-155">
+                  <li key={th.id} className="flex items-center justify-between gap-1.5 p-1.5 bg-white/80 rounded-lg shadow-sm border border-slate-200">
                     <span className="truncate flex-1 font-bold">{th.title}</span>
                     <button
                       onClick={() => onRemoveManualTask("theory", th.id)}

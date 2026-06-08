@@ -438,7 +438,7 @@ export default function App() {
           `//span[text()='Summary']/parent::a` and similar */}
       <nav 
         id="bottom-app-navigator"
-        className="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-4 py-3 bg-white/95 backdrop-blur-md border-t border-slate-155 shadow-lg rounded-t-2xl max-w-md mx-auto right-0"
+        className="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-4 py-3 bg-white/95 backdrop-blur-md border-t border-slate-200 shadow-lg rounded-t-2xl max-w-md mx-auto right-0"
       >
         {/* Daily Checklist Screen Link */}
         <a 
