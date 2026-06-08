@@ -1,0 +1,6 @@
+{
+  "name": "Piano Practice Tracker for Kai",
+  "description": "A clever weekly practice tracker for children to check off practice goals derived from piano teacher notes, with calendar tracking, stats summary, and bedtime notification reminders.",
+  "requestFramePermissions": ["notifications"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
